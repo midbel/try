@@ -91,7 +91,7 @@ func (r *Retry) Try(try TryFunc) error {
 		wait = r.wait
 		curr int
 	)
-	for curr < r.limit {
+	for r.limit == 0 || curr < r.limit {
 		err := try(curr)
 		if err == nil || errors.Is(err, ErrNoErr) {
 			break
