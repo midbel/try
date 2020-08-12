@@ -5,7 +5,11 @@ import (
 	"time"
 )
 
-var ErrAttempt = errors.New("try: max attempt reached")
+var (
+	ErrAttempt = errors.New("try: max attempt reached")
+	ErrAbort   = errors.New("try: abort")
+	ErrNoErr   = errors.New("try: no error")
+)
 
 type TryFunc func(int) error
 
@@ -20,8 +24,11 @@ func Try(max int, try TryFunc) error {
 	)
 	for curr < max {
 		err := try(curr + 1)
-		if err == nil {
+		if err == nil || errors.Is(err, ErrNoErr) {
 			break
+		}
+		if errors.Is(err, ErrAbort) {
+			return err
 		}
 		time.Sleep(wait)
 		if wait < limit {
