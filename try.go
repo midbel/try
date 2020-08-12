@@ -10,24 +10,88 @@ func init() {
 	rand.Seed(time.Now().Unix())
 }
 
-var (
-	ErrAttempt = errors.New("try: max attempt reached")
-	ErrAbort   = errors.New("try: abort")
-	ErrNoErr   = errors.New("try: no error")
+const (
+	DefaultLimitMax   = 10
+	DefaultDelay      = time.Second
+	DefaultBackoffMax = DefaultDelay * 64
 )
 
-type TryFunc func(int) error
+var (
+	ErrAttempt  = errors.New("try: max attempt reached")
+	ErrAbort    = errors.New("try: abort")
+	ErrNoErr    = errors.New("try: no error")
+	ErrDuration = errors.New("try: invalid duration")
+)
+
+type (
+	TryFunc    func(int) error
+	JitterFunc func() time.Duration
+)
+
+type Option func(r *Retry) error
+
+func WithWait(d time.Duration) Option {
+	return func(r *Retry) error {
+		if d <= 0 {
+			return ErrDuration
+		}
+		r.wait = d
+		return nil
+	}
+}
+
+func WithBackoff(d time.Duration) Option {
+	return func(r *Retry) error {
+		if d <= 0 {
+			return ErrDuration
+		}
+		r.backoff = d
+		return nil
+	}
+}
+
+func WithJitter(fn JitterFunc) Option {
+	return func(r *Retry) error {
+		if fn == nil {
+			fn = jitter
+		}
+		r.jitter = fn
+		return nil
+	}
+}
+
+type Retry struct {
+	limit   int
+	wait    time.Duration
+	backoff time.Duration
+	jitter  JitterFunc
+}
 
 func Try(max int, try TryFunc) error {
+	r, _ := New(max)
+	return r.Try(try)
+}
+
+func New(limit int, options ...Option) (*Retry, error) {
+	var r Retry
+	r.init()
+	for _, o := range options {
+		if err := o(&r); err != nil {
+			return nil, err
+		}
+	}
+	return &r, nil
+}
+
+func (r *Retry) Try(try TryFunc) error {
 	if try == nil {
 		return nil
 	}
 	var (
-		wait  = time.Second
-		limit = time.Second * 64
-		curr  = 1
+		wait = r.wait
+		curr int
 	)
-	for curr < max {
+	for curr < r.limit {
 		err := try(curr)
 		if err == nil || errors.Is(err, ErrNoErr) {
 			break
@@ -37,15 +101,22 @@ func Try(max int, try TryFunc) error {
 		}
 		curr++
 		time.Sleep(wait)
-		if wait < limit {
-			wait = time.Duration(1<<curr) * time.Second
+		if curr > 1 && wait < r.backoff {
+			wait = time.Duration(1<<curr) * r.wait
 			wait += jitter()
 		}
 	}
-	if curr >= max {
+	if curr >= r.limit {
 		return ErrAttempt
 	}
 	return nil
+}
+
+func (r *Retry) init() {
+	r.limit = DefaultLimitMax
+	r.wait = DefaultDelay
+	r.backoff = DefaultBackoffMax
+	r.jitter = jitter
 }
 
 func jitter() time.Duration {
