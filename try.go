@@ -101,7 +101,7 @@ func (r *Retry) Try(try TryFunc) error {
 		}
 		curr++
 		time.Sleep(wait)
-		if curr > 1 && wait < r.backoff {
+		if curr >= 1 && wait < r.backoff {
 			wait = time.Duration(1<<curr) * r.wait
 			wait += jitter()
 		}
