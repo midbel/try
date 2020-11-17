@@ -67,6 +67,11 @@ type Retry struct {
 	jitter  JitterFunc
 }
 
+func Foreover(try TryFunc) error {
+	r, _ := New(0)
+	return r.Try(try)
+}
+
 func Try(max int, try TryFunc) error {
 	r, _ := New(max)
 	return r.Try(try)
@@ -75,6 +80,7 @@ func Try(max int, try TryFunc) error {
 func New(limit int, options ...Option) (*Retry, error) {
 	var r Retry
 	r.init()
+	r.limit = limit
 	for _, o := range options {
 		if err := o(&r); err != nil {
 			return nil, err
@@ -106,7 +112,7 @@ func (r *Retry) Try(try TryFunc) error {
 			wait += jitter()
 		}
 	}
-	if curr >= r.limit {
+	if r.limit > 0 && curr >= r.limit {
 		return ErrAttempt
 	}
 	return nil
