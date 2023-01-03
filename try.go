@@ -1,6 +1,7 @@
 package try
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"time"
@@ -63,14 +64,20 @@ type Retry struct {
 	jitter  JitterFunc
 }
 
-func Foreover(try TryFunc) error {
-	r, _ := New(0)
-	return r.Try(try)
+func Forever(try TryFunc) error {
+	return Try(0, try)
+}
+
+func TryContext(ctx context.Context, max int, try TryFunc) error {
+	r, err := New(max)
+	if err != nil {
+		return err
+	}
+	return r.TryContext(ctx, try)
 }
 
 func Try(max int, try TryFunc) error {
-	r, _ := New(max)
-	return r.Try(try)
+	return TryContext(context.TODO(), max, try)
 }
 
 func New(limit int, options ...Option) (*Retry, error) {
@@ -87,15 +94,21 @@ func New(limit int, options ...Option) (*Retry, error) {
 	return &r, nil
 }
 
-func (r *Retry) Try(try TryFunc) error {
+func (r *Retry) TryContext(ctx context.Context, try TryFunc) error {
 	if try == nil {
 		return nil
+	}
+	if r.limit == 1 {
+		return try(0)
 	}
 	var (
 		wait = r.wait
 		curr int
 	)
 	for r.limit == 0 || curr < r.limit {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		err := try(curr)
 		if err == nil || errors.Is(err, ErrNoErr) {
 			break
@@ -116,6 +129,10 @@ func (r *Retry) Try(try TryFunc) error {
 		return ErrAttempt
 	}
 	return nil
+}
+
+func (r *Retry) Try(try TryFunc) error {
+	return r.TryContext(context.TODO(), try)
 }
 
 func jitter() time.Duration {
