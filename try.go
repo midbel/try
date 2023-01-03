@@ -11,9 +11,8 @@ func init() {
 }
 
 const (
-	DefaultLimitMax   = 10
-	DefaultDelay      = time.Second
-	DefaultBackoffMax = DefaultDelay * 64
+	DefaultDelay   = time.Second
+	DefaultBackoff = DefaultDelay * 64
 )
 
 var (
@@ -52,9 +51,6 @@ func WithBackoff(d time.Duration) Option {
 
 func WithJitter(fn JitterFunc) Option {
 	return func(r *Retry) error {
-		if fn == nil {
-			fn = jitter
-		}
 		r.jitter = fn
 		return nil
 	}
@@ -78,9 +74,11 @@ func Try(max int, try TryFunc) error {
 }
 
 func New(limit int, options ...Option) (*Retry, error) {
-	var r Retry
-	r.init()
-	r.limit = limit
+	r := Retry{
+		limit:   limit,
+		wait:    DefaultDelay,
+		backoff: DefaultBackoff,
+	}
 	for _, o := range options {
 		if err := o(&r); err != nil {
 			return nil, err
@@ -103,26 +101,21 @@ func (r *Retry) Try(try TryFunc) error {
 			break
 		}
 		if errors.Is(err, ErrAbort) {
-			return err
+			return errors.Unwrap(err)
 		}
 		curr++
 		time.Sleep(wait)
-		if curr >= 1 && wait < r.backoff {
+		if wait < r.backoff {
 			wait = time.Duration(1<<curr) * r.wait
-			wait += jitter()
+			if r.jitter != nil {
+				wait += r.jitter()
+			}
 		}
 	}
 	if r.limit > 0 && curr >= r.limit {
 		return ErrAttempt
 	}
 	return nil
-}
-
-func (r *Retry) init() {
-	r.limit = DefaultLimitMax
-	r.wait = DefaultDelay
-	r.backoff = DefaultBackoffMax
-	r.jitter = jitter
 }
 
 func jitter() time.Duration {
